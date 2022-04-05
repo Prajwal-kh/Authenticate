@@ -1,14 +1,16 @@
 //jshint esversion:6
 // require('dotnet').config();
-require('dotnet').new();
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const ejs = require('ejs');
 const mongoose = require("mongoose");
-// To encrept user's password we saved in our database install mongoose-encryption first
-const encryption = require("mongoose-encryption");
-// To encrypt using environment var, add it on very top of application to make more secure, also create a .env file in root dir of project:
-// create a .env & .gitignore files
+    // To encrept user's password we saved in our database install mongoose-encryption first
+// const encrypt = require("mongoose-encryption");
+    // To encrypt using environment var, add it on very top of application to make more secure, also create a .env file in root dir of project:
+    // create a .env file & .gitignore file with node template
+
+const md5 = require("md5");
 
 const app = express();
 
@@ -24,9 +26,12 @@ const userSchema = new mongoose.Schema({
     Password: String
 });
 
-// Encryption method we are using:      (Note:- add encryption before creating model)
-var secret = process.env.SECRET;
-userSchema.plugin(encrypt, {secret : secret, encryptedFields:['Password']})
+    // Encryption method we are using is Env variables:      (Note:- add encryption before creating model)
+// userSchema.plugin(encrypt, {secret : process.env.SECRET, encryptedFields:["Password"]});
+    // Delete old database as we created encryption on it.
+
+    // Encrytion method we are using now is Hashing passwords:  (require & install md5 package cast password in Register route & decrypt it in login route)
+
 
 const User = new mongoose.model("User", userSchema);
 
@@ -45,7 +50,7 @@ app.get("/register",(req,res)=>{
 app.post("/register", (req,res)=>{
     const newUser = new User({
         Username:req.body.username,
-        Password:req.body.password
+        Password:md5(req.body.password)
     });
     // Save will encrypt the file & find will decrypt it.
     newUser.save((err)=>{
@@ -59,13 +64,16 @@ app.post("/register", (req,res)=>{
 
 app.post("/login",(req,res)=>{
     const enteredName = req.body.username;
-    const enteredPassword =req.body.password;
+    const enteredPassword =md5(req.body.password);
     User.findOne({Username : enteredName},function(err, foundUser){
         if(err){
             console.log(err);
         }else{
             if(foundUser){   
-                res.render("secrets");
+                if(foundUser.Password===enteredPassword){
+                    res.render("secrets");
+                }
+                
             }
         }
     })
