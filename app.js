@@ -13,6 +13,11 @@ const session = require("express-session")
 const passport = require("passport")
 const passportLocalMongoose = require("passport-local-mongoose")
 
+// Install npm package for google authetication:  >npm install passport-google-oauth20
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate');
+
+
 const app = express();
 
 app.use(express.static("public"));
@@ -34,7 +39,8 @@ mongoose.connect("mongodb://localhost:27017/userDB", {useNewUrlParser:true})    
 // Need to create mongoose.Schema to encrypt, instead of just an object:
 const userSchema = new mongoose.Schema({
     Username: String,
-    Password: String
+    Password: String,
+    googleId: String
 });
 
 // Encryption method we are using is Env variables:      (Note:- add encryption before creating model)
@@ -42,19 +48,41 @@ const userSchema = new mongoose.Schema({
 
 // To authenticate user on schema, use passport.js for authentication we need to plugin userSchema with passport-local-mongoose:
 userSchema.plugin(passportLocalMongoose);   // To hash & salt our password & to save users into database
+userSchema.plugin(findOrCreate);
 
 const User = new mongoose.model("User", userSchema);
 
 // we createStrategy after we require & install passport packages, start & initialize session & plugin (order is imp)
 passport.use(User.createStrategy());   //local login strategy using passport-local-mongoose
 
+// used to serialize the user for the session
 passport.serializeUser(function(user, done) {
-    done(null, user);
+    done(null, user.id); 
+   // where is this user.id going? Are we supposed to access this anywhere?
 });
 
-passport.deserializeUser(function(user, done) {
-    done(null, user);
+passport.deserializeUser(function(id, done) {
+    User.findById(id, function(err, user) {
+        done(err, user);
+    });
 });
+
+// This will need to authenticated user & save users profile :
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/callback"
+    // userProfileURL:"https://www.googleapis.com/oauth2/v3/userinfo"  
+    // we use this userProfileURL because callbackURL is deprecating with google+ 
+  },
+  function(accessToken, refreshToken, profile, cb) {
+      console.log(profile);
+    // create users profiles on our database using findOrCreate
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
 
 app.get("/", function(req,res){
     res.render("home")
@@ -76,6 +104,20 @@ app.get("/secrets", function(req,res){
         res.redirect("/login")  // if user close browser session cookie gets deleted & user go to the login route again
     }
 })
+
+// Create app.get on route "/auth/google" to get google auth req when user click on Google Sign in:
+app.get("/auth/google",
+// To bring up authentication using google strategy/servers & get the profile of users.
+    passport.authenticate("google", { scope: ["profile"] })
+);
+
+// Now google makes a get request to redirect users back to our authorized URL website:
+app.get("/auth/google/callback", 
+  passport.authenticate('google', { failureRedirect: "/login" }),
+  function(req, res) {
+    // Successful authentication, redirect secrets page.
+    res.redirect("/secrets");
+});
 
 app.post("/register", (req,res)=>{
    /* //bCrypt hashing method:   (we need to again delete DB with old username & password to store new Hashing authentication)
@@ -140,6 +182,7 @@ app.post("/login",(req,res)=>{
       }
     });
 });
+
 app.get("/logout", function(req,res){
     req.logout();
     res.redirect('/');
